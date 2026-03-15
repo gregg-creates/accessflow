@@ -1,8 +1,9 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { createBrowserClient } from "@/lib/supabase";
 
 export default function SignupPage() {
   return (
@@ -13,6 +14,7 @@ export default function SignupPage() {
 }
 
 function SignupForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const prefillEmail = searchParams.get("email") || "";
 
@@ -41,9 +43,30 @@ function SignupForm() {
 
     setSubmitting(true);
     try {
-      // TODO: Supabase Auth signUp
-      // TODO: Insert user_profiles row
-      // TODO: Redirect to /dashboard on success
+      const supabase = createBrowserClient();
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: name },
+        },
+      });
+
+      if (authError) {
+        setError(authError.message);
+        return;
+      }
+
+      // Insert user profile
+      if (authData.user) {
+        await supabase.from("user_profiles").upsert({
+          id: authData.user.id,
+          email,
+          full_name: name,
+        });
+      }
+
+      router.push("/dashboard");
     } catch {
       setError("An error occurred. Please try again.");
     } finally {
@@ -54,7 +77,17 @@ function SignupForm() {
   async function handleGoogleSignup() {
     setError(null);
     try {
-      // TODO: Supabase Auth signInWithOAuth({ provider: 'google' })
+      const supabase = createBrowserClient();
+      const { error: authError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (authError) {
+        setError(authError.message);
+      }
     } catch {
       setError("Google sign-up failed. Please try again.");
     }

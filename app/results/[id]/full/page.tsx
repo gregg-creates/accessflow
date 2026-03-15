@@ -61,7 +61,22 @@ export default function FullReportPage() {
         const res = await fetch(`/api/scan/${scanId}/report`);
         if (!res.ok) return;
         const data = await res.json();
-        setReport(data.report);
+
+        // Build ReportJSON from flat API response
+        if (data.all_violations) {
+          setReport({
+            violations: data.all_violations,
+            top_issues: data.top_issues || [],
+            pdf_inventory: data.pdf_inventory || [],
+            widget_inventory: data.widget_inventory || [],
+            effort_summary: data.effort_summary || {
+              XS: 0, S: 0, M: 0, L: 0, XL: 0, EXT: 0,
+              total_hours_est: "Unknown",
+            },
+            pdf_summary: null,
+            widget_summary: null,
+          });
+        }
         setRiskScore(data.risk_score ?? 0);
         setCriticalCount(data.critical_count ?? 0);
         setDemandLetterMode(data.demand_letter_mode ?? false);
@@ -258,12 +273,25 @@ export default function FullReportPage() {
 
       {/* PDF Export */}
       <div className="mt-8 text-center">
-        <a
-          href={`/api/scan/${scanId}/export-pdf`}
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const res = await fetch(`/api/scan/${scanId}/export-pdf`, {
+                method: "POST",
+              });
+              const data = await res.json();
+              if (data.pdf_url) {
+                window.open(data.pdf_url, "_blank");
+              }
+            } catch {
+              // Handle error
+            }
+          }}
           className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 px-6 py-3 text-sm font-medium text-navy transition-colors hover:bg-slate-50"
         >
           Download PDF Report
-        </a>
+        </button>
       </div>
 
       {/* Disclaimer */}

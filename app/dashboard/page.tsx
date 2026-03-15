@@ -1,31 +1,81 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
+import { createBrowserClient } from "@/lib/supabase";
 import type { Scan } from "@/types";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [scans, setScans] = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
 
   useEffect(() => {
-    async function fetchScans() {
+    async function init() {
       try {
-        // TODO: Check Supabase auth session
-        // TODO: Fetch scans from Supabase where user_id = current user
-        // For now, simulate auth check
-        setAuthenticated(false);
-        setScans([]);
+        const supabase = createBrowserClient();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session) {
+          setAuthenticated(false);
+          setLoading(false);
+          return;
+        }
+
+        setAuthenticated(true);
+
+        const { data, error } = await supabase
+          .from("scans")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false });
+
+        if (!error && data) {
+          setScans(data as Scan[]);
+        }
       } catch {
         // Handle error
       } finally {
         setLoading(false);
       }
     }
-    fetchScans();
+    init();
   }, []);
+
+  async function handleRescan(scan: Scan) {
+    const supabase = createBrowserClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    try {
+      const res = await fetch("/api/scan/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: scan.url,
+          demand_letter_mode: scan.demand_letter_mode,
+          prior_scan_id: scan.id,
+          turnstile_token: "authenticated-rescan",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        router.push(`/scanning/${data.scan_id}`);
+      }
+    } catch {
+      // Handle error
+    }
+  }
+
+  async function handleSignOut() {
+    const supabase = createBrowserClient();
+    await supabase.auth.signOut();
+    router.push("/");
+  }
 
   if (loading) {
     return (
@@ -67,12 +117,21 @@ export default function DashboardPage() {
             {scans.length} scan{scans.length !== 1 ? "s" : ""} total
           </p>
         </div>
-        <Link
-          href="/"
-          className="inline-flex min-h-[44px] items-center rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-blue-700"
-        >
-          New Scan
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="inline-flex min-h-[44px] items-center rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            New Scan
+          </Link>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
 
       {scans.length === 0 ? (
@@ -132,7 +191,7 @@ export default function DashboardPage() {
                     {scan.risk_score !== null ? (
                       <RiskScoreBadge score={scan.risk_score} size="sm" />
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <span className="text-slate-400">&mdash;</span>
                     )}
                   </td>
                   <td className="py-3 text-slate-600">
@@ -146,7 +205,7 @@ export default function DashboardPage() {
                         )}
                       </span>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <span className="text-slate-400">&mdash;</span>
                     )}
                   </td>
                   <td className="py-3 text-slate-500">
@@ -179,9 +238,7 @@ export default function DashboardPage() {
                           type="button"
                           className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100"
                           aria-label={`Re-scan ${scan.url}`}
-                          onClick={() => {
-                            // TODO: POST /api/scan/start with prior_scan_id = scan.id
-                          }}
+                          onClick={() => handleRescan(scan)}
                         >
                           Re-scan
                         </button>

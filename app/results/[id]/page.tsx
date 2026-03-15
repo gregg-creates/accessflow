@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { DisclaimerBanner } from "@/components/Disclaimer";
-import type { ReportJSON } from "@/types";
+import type { Violation } from "@/types";
 
 export default function ResultsPreviewPage() {
   const params = useParams();
   const router = useRouter();
   const scanId = params.id as string;
 
-  const [report, setReport] = useState<ReportJSON | null>(null);
+  const [topIssues, setTopIssues] = useState<Violation[]>([]);
   const [riskScore, setRiskScore] = useState<number | null>(null);
   const [demandLetterMode, setDemandLetterMode] = useState(false);
   const [email, setEmail] = useState("");
@@ -19,6 +19,7 @@ export default function ResultsPreviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [violationCount, setViolationCount] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const modalRef = useRef<HTMLDivElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
@@ -30,12 +31,14 @@ export default function ResultsPreviewPage() {
         const res = await fetch(`/api/scan/${scanId}/report`);
         if (!res.ok) return;
         const data = await res.json();
-        setReport(data.report);
+        setTopIssues(data.top_issues || []);
         setRiskScore(data.risk_score);
         setDemandLetterMode(data.demand_letter_mode);
         setViolationCount(data.violation_count);
       } catch {
         // Handle error
+      } finally {
+        setLoading(false);
       }
     }
     fetchReport();
@@ -97,13 +100,32 @@ export default function ResultsPreviewPage() {
 
     setSubmitting(true);
     try {
-      // TODO: POST email to capture endpoint
+      const res = await fetch("/api/lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), scan_id: scanId }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setEmailError(data.error || "Something went wrong. Please try again.");
+        return;
+      }
+
       router.push(`/results/${scanId}/full`);
     } catch {
       setEmailError("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="py-20 text-center text-slate-500">
+        Loading results...
+      </div>
+    );
   }
 
   return (
@@ -132,7 +154,7 @@ export default function ResultsPreviewPage() {
       )}
 
       {/* Top 5 violations preview */}
-      {report?.top_issues && report.top_issues.length > 0 && (
+      {topIssues.length > 0 && (
         <section aria-labelledby="top-issues-heading" className="mt-8">
           <h2
             id="top-issues-heading"
@@ -141,7 +163,7 @@ export default function ResultsPreviewPage() {
             Top Issues Found
           </h2>
           <ul className="mt-4 space-y-4">
-            {report.top_issues.map((issue, i) => (
+            {topIssues.map((issue, i) => (
               <li
                 key={issue.id || i}
                 className="rounded-lg border border-slate-200 bg-white p-4"

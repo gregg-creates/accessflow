@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { DisclaimerBanner } from "@/components/Disclaimer";
 
 const trustStats = [
@@ -92,9 +94,13 @@ const faqs = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [demandLetterMode, setDemandLetterMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileInstance>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,9 +111,40 @@ export default function HomePage() {
       return;
     }
 
-    // TODO: Cloudflare Turnstile validation
-    // TODO: POST /api/scan/start
-    // TODO: Redirect to /scanning/[id]
+    if (!turnstileToken) {
+      setError("Please complete the verification check.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/scan/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: url.trim(),
+          demand_letter_mode: demandLetterMode,
+          turnstile_token: turnstileToken,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Something went wrong. Please try again.");
+        turnstileRef.current?.reset();
+        setTurnstileToken(null);
+        return;
+      }
+
+      router.push(`/scanning/${data.scan_id}`);
+    } catch {
+      setError("Could not connect to the server. Please try again.");
+      turnstileRef.current?.reset();
+      setTurnstileToken(null);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -141,9 +178,10 @@ export default function HomePage() {
               />
               <button
                 type="submit"
-                className="min-h-[44px] whitespace-nowrap rounded-lg bg-blue-600 px-8 py-3 font-semibold text-white transition-colors hover:bg-blue-700"
+                disabled={submitting}
+                className="min-h-[44px] whitespace-nowrap rounded-lg bg-blue-600 px-8 py-3 font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
               >
-                Scan My Website — Free
+                {submitting ? "Starting scan..." : "Scan My Website — Free"}
               </button>
             </div>
 
@@ -156,6 +194,19 @@ export default function HomePage() {
               />
               I&apos;ve received a demand letter or legal notice
             </label>
+
+            {/* Turnstile */}
+            {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && (
+              <div className="mt-4 flex justify-center">
+                <Turnstile
+                  ref={turnstileRef}
+                  siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+                  onSuccess={setTurnstileToken}
+                  onError={() => setTurnstileToken(null)}
+                  onExpire={() => setTurnstileToken(null)}
+                />
+              </div>
+            )}
 
             {/* Error region */}
             <div aria-live="assertive" className="mt-2">

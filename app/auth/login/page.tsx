@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createBrowserClient } from "@/lib/supabase";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,8 +27,18 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
-      // TODO: Supabase Auth signInWithPassword
-      // TODO: Redirect to /dashboard on success
+      const supabase = createBrowserClient();
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        setError(authError.message);
+        return;
+      }
+
+      router.push("/dashboard");
     } catch {
       setError("Invalid email or password. Please try again.");
     } finally {
@@ -36,7 +49,17 @@ export default function LoginPage() {
   async function handleGoogleLogin() {
     setError(null);
     try {
-      // TODO: Supabase Auth signInWithOAuth({ provider: 'google' })
+      const supabase = createBrowserClient();
+      const { error: authError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (authError) {
+        setError(authError.message);
+      }
     } catch {
       setError("Google sign-in failed. Please try again.");
     }
