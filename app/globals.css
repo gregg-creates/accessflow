@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #1B2A4A;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    color: var(--foreground);
+    background: var(--background);
+    font-family: var(--font-geist-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Focus styles — WCAG 2.2 AA compliant (spec: 3px solid) */
+  *:focus-visible {
+    outline: 3px solid #2563EB;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* WCAG 2.4.11: Focus not obscured by sticky nav */
+  .main-content {
+    scroll-margin-top: 72px;
+  }
+
+  /* Skip to main content link */
+  .skip-link {
+    @apply absolute left-4 top-4 z-50 -translate-y-16 rounded bg-blue-600 px-4 py-2 text-white transition-transform focus:translate-y-0;
+  }
+}
+
+@layer components {
+  /* Violation card severity borders */
+  .violation-critical {
+    @apply border-l-4 border-l-severity-critical;
+  }
+  .violation-serious {
+    @apply border-l-4 border-l-severity-serious;
+  }
+  .violation-moderate {
+    @apply border-l-4 border-l-severity-moderate;
+  }
+  .violation-minor {
+    @apply border-l-4 border-l-severity-minor;
+  }
+}
