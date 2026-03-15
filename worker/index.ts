@@ -1,5 +1,6 @@
 import { Worker, type Job } from "bullmq";
 import { logger } from "../lib/logger";
+import { createServiceClient } from "../lib/supabase";
 import { crawlSite } from "./crawler";
 import { calculateRiskScore } from "./scorer";
 import {
@@ -300,20 +301,51 @@ async function processScanJob(job: Job<ScanJobData>) {
 
     const pdfBuffer = await renderToBuffer(pdfElement);
 
-    // TODO: Upload pdfBuffer to Supabase Storage
-    // TODO: Get signed URL for pdf_url
-    const pdfUrl: string | null = null;
+    // ── Step 9b: Upload PDF to Supabase Storage ──
+    const supabase = createServiceClient();
+    const pdfPath = `scans/${scanId}/report.pdf`;
+    const { error: uploadError } = await supabase.storage
+      .from("reports")
+      .upload(pdfPath, pdfBuffer, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    const pdfUrl = uploadError ? null : pdfPath;
+    if (uploadError) {
+      logger.warn({ scanId, error: uploadError.message }, "PDF upload failed — continuing without PDF");
+    }
 
     // ── Step 10: Save everything to database ──
-    // TODO: Insert enrichedViolations into violations table
-    // TODO: Insert pdfLinks into pdf_links table
-    // TODO: Insert widgets into third_party_widgets table
-    // TODO: Update scan row with:
-    //   - status: 'completed'
-    //   - risk_score, violation_count, critical_count, serious_count
-    //   - pdf_link_count, widget_count
-    //   - report_json, pdf_url
-    //   - completed_at
+    // Insert violations
+    if (enrichedViolations.length > 0) {
+      const { error: violationsError } = await supabase
+        .from("violations")
+        .insert(enrichedViolations);
+      if (violationsError) {
+        logger.error({ scanId, error: violationsError.message }, "Failed to insert violations");
+      }
+    }
+
+    // Insert PDF links
+    if (pdfLinks.length > 0) {
+      const { error: pdfError } = await supabase
+        .from("pdf_links")
+        .insert(pdfLinks);
+      if (pdfError) {
+        logger.error({ scanId, error: pdfError.message }, "Failed to insert PDF links");
+      }
+    }
+
+    // Insert widgets
+    if (widgets.length > 0) {
+      const { error: widgetError } = await supabase
+        .from("third_party_widgets")
+        .insert(widgets);
+      if (widgetError) {
+        logger.error({ scanId, error: widgetError.message }, "Failed to insert widgets");
+      }
+    }
 
     const criticalCount = enrichedViolations.filter(
       (v) => v.impact === "critical"
@@ -360,15 +392,29 @@ function checkTimeout(startTime: number, scanId: string): void {
   }
 }
 
-// ── Database Helpers (to be wired to Supabase) ──────────
+// ── Database Helpers ─────────────────────────────────────
 
 async function updateScanStatus(
   scanId: string,
   status: string,
   extra?: Record<string, unknown>
 ) {
-  // TODO: Supabase update
-  logger.info({ scanId, status, ...extra }, "Scan status updated");
+  const supabase = createServiceClient();
+  const updateData: Record<string, unknown> = { status, ...extra };
+  if (status === "crawling") {
+    updateData.job_started_at = new Date().toISOString();
+  }
+
+  const { error } = await supabase
+    .from("scans")
+    .update(updateData)
+    .eq("id", scanId);
+
+  if (error) {
+    logger.error({ scanId, status, error: error.message }, "Failed to update scan status");
+  } else {
+    logger.info({ scanId, status, ...extra }, "Scan status updated");
+  }
 }
 
 async function updateScanProgress(
@@ -376,8 +422,17 @@ async function updateScanProgress(
   pagesScanned: number,
   pagesTotal: number
 ) {
-  // TODO: Supabase update
-  logger.debug({ scanId, pagesScanned, pagesTotal }, "Scan progress updated");
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("scans")
+    .update({ pages_scanned: pagesScanned, pages_total: pagesTotal })
+    .eq("id", scanId);
+
+  if (error) {
+    logger.error({ scanId, error: error.message }, "Failed to update scan progress");
+  } else {
+    logger.debug({ scanId, pagesScanned, pagesTotal }, "Scan progress updated");
+  }
 }
 
 async function updateScanCompleted(
@@ -393,8 +448,21 @@ async function updateScanCompleted(
     pdf_url: string | null;
   }
 ) {
-  // TODO: Supabase update — set status='completed', completed_at=NOW()
-  logger.info({ scanId, ...data }, "Scan completed");
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("scans")
+    .update({
+      ...data,
+      status: "completed",
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", scanId);
+
+  if (error) {
+    logger.error({ scanId, error: error.message }, "Failed to mark scan completed");
+  } else {
+    logger.info({ scanId, riskScore: data.risk_score }, "Scan completed");
+  }
 }
 
 // ── Worker Setup ────────────────────────────────────────
